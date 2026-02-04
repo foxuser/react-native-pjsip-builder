@@ -1,59 +1,38 @@
 #!/bin/bash
-#@see http://stackoverflow.com/questions/11929773/compiling-the-latest-openssl-for-android
+# Build OpenSSL 3.x for Android with 16KB page alignment support
 set -e
-
-GCC_VERSION=$(gcc --version | grep gcc | awk '{print $4}' | cut -d'.' -f1,2)
 
 TARGET_ARCH=$1
 TARGET_PATH=/output/openssl/${TARGET_ARCH}
+NDK_PATH=/sources/android_ndk
 
+# Clean previous build to avoid architecture conflicts
+rm -rf /tmp/openssl
 cp -r /sources/openssl /tmp/openssl
 
+# Set up architecture-specific variables
 if [ "$TARGET_ARCH" == "armeabi-v7a" ]
 then
-    TARGET=android-armv7
-    TOOLCHAIN=arm-linux-androideabi-4.9
-    export TOOL=arm-linux-androideabi
+    TARGET=android-arm
+    ANDROID_ARCH=arm
     export ARCH_FLAGS="-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16"
-    export ARCH_LINK="-march=armv7-a -Wl,--fix-cortex-a8"
+    export ARCH_LINK="-march=armv7-a"
 elif [ "$TARGET_ARCH" == "arm64-v8a" ]
 then
-    TARGET=android
-    TOOLCHAIN=aarch64-linux-android-4.9
-    export TOOL=aarch64-linux-android
+    TARGET=android-arm64
+    ANDROID_ARCH=arm64
     export ARCH_FLAGS=
-    export ARCH_LINK=
-elif [ "$TARGET_ARCH" == "armeabi" ]
-then
-    TARGET=android
-    TOOLCHAIN=arm-linux-androideabi-4.9
-    export TOOL=arm-linux-androideabi
-    export ARCH_FLAGS="-mthumb"
     export ARCH_LINK=
 elif [ "$TARGET_ARCH" == "x86" ]
 then
     TARGET=android-x86
-    TOOLCHAIN=x86-4.9
-    export TOOL=i686-linux-android
+    ANDROID_ARCH=x86
     export ARCH_FLAGS="-march=i686 -msse3 -mstackrealign -mfpmath=sse"
     export ARCH_LINK=
 elif [ "$TARGET_ARCH" == "x86_64" ]
 then
-    TARGET=linux-x86_64
-    TOOLCHAIN=x86_64-4.9
-    export TOOL=x86_64-linux-android
-elif [ "$TARGET_ARCH" == "mips" ]
-then
-    TARGET=android-mips
-    TOOLCHAIN=mipsel-linux-android-4.9
-    export TOOL=mipsel-linux-android
-    export ARCH_FLAGS=
-    export ARCH_LINK=
-elif [ "$TARGET_ARCH" == "mips64" ]
-then
-    TARGET=android-mips64
-    TOOLCHAIN=mips64el-linux-android-4.9
-    export TOOL=mips64el-linux-android
+    TARGET=android-x86_64
+    ANDROID_ARCH=x86_64
     export ARCH_FLAGS=
     export ARCH_LINK=
 else
@@ -61,42 +40,29 @@ else
     exit 1
 fi
 
-export TOOLCHAIN_PATH="/tmp/openssl/android-toolchain/bin"
-export PATH=$TOOLCHAIN_PATH:$PATH
-export NDK_TOOLCHAIN_BASENAME=${TOOLCHAIN_PATH}/${TOOL}
-export CC=$NDK_TOOLCHAIN_BASENAME-gcc
-export CXX=$NDK_TOOLCHAIN_BASENAME-g++
-export LINK=${CXX}
-export LD=$NDK_TOOLCHAIN_BASENAME-ld
-export AR=$NDK_TOOLCHAIN_BASENAME-ar
-export RANLIB=$NDK_TOOLCHAIN_BASENAME-ranlib
-export STRIP=$NDK_TOOLCHAIN_BASENAME-strip
-export CPPFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing -finline-limit=64 "
-export CXXFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing -finline-limit=64 -frtti -fexceptions "
-export CFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing -finline-limit=64 "
-export LDFLAGS=" ${ARCH_LINK} "
+# Use NDK's prebuilt clang toolchain
+export ANDROID_NDK_ROOT=${NDK_PATH}
+export PATH="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
 
-
-################################
-# TODO
-################################
-
-cd /sources/android_ndk/build/tools/
-
-./make-standalone-toolchain.sh \
-    --ndk-dir=/sources/android_ndk \
-    --platform=android-${ANDROID_TARGET_API} \
-    --toolchain=${TOOLCHAIN} \
-    --install-dir="/tmp/openssl/android-toolchain"
+export CPPFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing "
+export CXXFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing -frtti -fexceptions "
+export CFLAGS=" ${ARCH_FLAGS} -fpic -ffunction-sections -funwind-tables -fstack-protector -fno-strict-aliasing "
+# 16KB page alignment for Android 15+ compatibility
+export LDFLAGS=" ${ARCH_LINK} -Wl,-z,max-page-size=16384 "
 
 cd /tmp/openssl/
 
-################################
-# TODO
-################################
+# Configure OpenSSL 3.x for Android
+./Configure ${TARGET} \
+    -D__ANDROID_API__=${ANDROID_TARGET_API} \
+    no-asm \
+    no-shared \
+    no-unit-test \
+    --prefix=${TARGET_PATH} \
+    --openssldir=${TARGET_PATH}
 
-./Configure ${TARGET} no-asm no-unit-test --openssldir=${TARGET_PATH}
-make && make install
+make clean || true
+make -j$(nproc)
+make install_sw
 
 rm -rf /tmp/openssl/
-
