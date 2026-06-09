@@ -1,15 +1,28 @@
 #!/bin/bash
 set -e
 
-IMAGE_NAME="react-native-pjsip-builder/ios"
-CONTAINER_NAME="react-native-pjsip-builder-${RANDOM}"
+VIALER_VERSION="3.5"
+VIALER_ARCHIVE_URL="https://github.com/VoIPGRID/Vialer-pjsip-iOS/archive/${VIALER_VERSION}.zip"
+VIALER_BINARY_URL="https://github.com/VoIPGRID/Vialer-pjsip-iOS/blob/${VIALER_VERSION}/VialerPJSIP.framework/Versions/A/VialerPJSIP?raw=true"
 
-rm -rf ./dist/ios;
-mkdir -p ./dist/;
+DEST="./dist/ios/VialerPJSIP.framework"
+TMP="./dist/ios/.tmp"
 
-docker build -t react-native-pjsip-builder/ios ./ios/;
-docker run --name ${CONTAINER_NAME} ${IMAGE_NAME} bin/true
+rm -rf ./dist/ios
+mkdir -p "$TMP"
 
-docker cp ${CONTAINER_NAME}:/dist/ios ./dist/ios
+echo "Downloading Vialer-pjsip-iOS ${VIALER_VERSION} archive..."
+curl -L --silent "$VIALER_ARCHIVE_URL" -o "$TMP/vialer.zip"
 
-docker rm ${CONTAINER_NAME}
+echo "Downloading VialerPJSIP binary (git LFS)..."
+curl -L --silent "$VIALER_BINARY_URL" -o "$TMP/VialerPJSIP"
+
+echo "Extracting framework headers..."
+unzip -q "$TMP/vialer.zip" -d "$TMP"
+
+mkdir -p "$DEST"
+cp -r "$TMP/Vialer-pjsip-iOS-${VIALER_VERSION}/VialerPJSIP.framework/Versions/Current/Headers" "$DEST/Headers"
+cp "$TMP/VialerPJSIP" "$DEST/VialerPJSIP"
+
+rm -rf "$TMP"
+echo "iOS framework built at $DEST"
